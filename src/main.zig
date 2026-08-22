@@ -118,29 +118,35 @@ fn runService(ctx: *const r4os.r4sys.Context, dev: ?*const r4os.r4dev.Context) i
     importBootlog(ctx, &state);
     refreshAdapters(ctx, dev, &state);
 
-    // 0.56.19 (Pilot): blockierendes serviceEndpointWait statt
-    // Poll+sleepTicks(1) - im Leerlauf schlaeft der Service auf der
-    // Endpoint-WaitQueue statt 100x/s aufzuwachen. Timeout 200 Ticks
-    // (~2 s) haelt programShouldClose reaktionsfaehig.
-    while (!ctx.programShouldClose()) {
-        const pending = ctx.serviceEndpointWait(handle, 200);
-        if (pending < 0) {
-            _ = ctx.serviceEndpointUnregister(handle);
-            return pending;
-        }
-        // Runtime kernel output continues to enter the BootLog after LOGSVC
-        // has started. Import that absolute tail before answering a reader so
-        // LogCenter sees asynchronous driver/kernel diagnostics as records.
-        refreshBootlog(ctx, &state);
-        if (pending > 0) {
-            const rc = handleRequest(ctx, dev, handle, &state);
-            if (rc < 0) {
+    const refresh_ticks = @max(ctx.ticksFromMilliseconds(200), 1);
+    var next_refresh_tick = ctx.ticks() +| refresh_ticks;
+    var service_loop = r4os.ServiceLoop.init(ctx.*, handle, .{});
+    while (true) {
+        switch (service_loop.wait(next_refresh_tick)) {
+            .requests => |pending| {
+                // Runtime kernel output continues to enter the BootLog after
+                // LOGSVC has started. Import its absolute tail before readers.
+                refreshBootlog(ctx, &state);
+                next_refresh_tick = ctx.ticks() +| refresh_ticks;
+                const rc = service_loop.drain(pending, handleRequest, .{ ctx, dev, handle, &state });
+                if (rc >= 0) continue;
                 _ = ctx.serviceEndpointUnregister(handle);
                 return rc;
-            }
+            },
+            .deadline => {
+                refreshBootlog(ctx, &state);
+                next_refresh_tick = ctx.ticks() +| refresh_ticks;
+            },
+            .idle => {},
+            .stop => break,
+            .failure => |raw| {
+                _ = ctx.serviceEndpointUnregister(handle);
+                return raw;
+            },
         }
     }
 
+    service_loop.report(service_name);
     _ = ctx.serviceEndpointUnregister(handle);
     ctx.println("LOGSVC stopped cleanly");
     return 0;
