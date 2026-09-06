@@ -8,19 +8,20 @@ Projektstruktur seit 0.51.19:
 - `build.zig.zon` bindet `r4os_sdk` als Paket.
 - `module.R4MF` beschreibt Artefakt, Zielpfad, Imports, Startdaten und Contract.
 
-Build:
+Build aus dem Repository `Repositories/Services/LogService`:
 
-    cd Code\System\Services\LogService
-    ..\..\..\DevTools\Zig\zig.exe build
+    Windows: Build.bat
+    Linux:   ./Build.sh
 
-Ergebnis:
+Die Starter loesen Toolchain und lokale SDK-Abhaengigkeiten ueber
+`Settings.R4S` auf. Das Ergebnis liegt im Repository unter:
 
-    Code\System\Services\LogService\zig-out\LOGSVC.R4X
+    zig-out/LOGSVC.R4X
 
 Contract:
-- R4XStart-Entry: `logsvc_main`
+- App-Einstieg: `r4_app_main`; `ENTRY_MODE=app` erzeugt den SDK-Startwrapper.
 - App-Klasse: `service`
-- R4L-Imports: `R4SYS`
+- Eingebaute Plattform-API: `R4SYS:Query:1`
 - Service-Name: `LOGSVC`
 - Standardargumente: `/RUN`
 - Zielpfad im Image: `C:\R4OS\SERVICES\LOGSVC.R4X`
@@ -40,6 +41,6 @@ Runtime-Bootlog seit 0.59.3:
 - Normale Runtime-Kernelmeldungen bleiben damit nach dem Desktopstart in
   COM1/Bootlog/LOGSVC, ohne den sichtbaren Framebuffer zu ueberschreiben.
 
-Gezielter Vertrag:
-
-    Tests\Gate\Run-DesktopKernelLogRoutingContract0593.ps1
+Der fruehere Gate-Pfad `Tests/Gate/Run-DesktopKernelLogRoutingContract0593.ps1`
+ist im aktuellen Workspace nicht mehr vorhanden. Aktuelle Nachweise stehen
+in `Docs/Inventory/Tests.json` im Workspace-Root.
