@@ -635,7 +635,7 @@ fn handleRequest(ctx: *const r4os.r4sys.Context, dev: ?*const r4os.r4dev.Context
         else => {
             state.bad_ops +%= 1;
             setLastError(state, "bad-op");
-            return ctx.serviceEndpointReply(handle, header.request_id, r4os.abi.service_api_result_bad_op, "BADOP");
+            return r4os.app_services.replyIfPending(ctx.*, handle, header.request_id, r4os.abi.service_api_result_bad_op, "BADOP");
         },
     };
 }
@@ -643,13 +643,13 @@ fn handleRequest(ctx: *const r4os.r4sys.Context, dev: ?*const r4os.r4dev.Context
 fn replyStatus(ctx: *const r4os.r4sys.Context, handle: u32, request_id: u32, state: *const LogState) i32 {
     const status = makeStatus(state);
     const bytes: [*]const u8 = @ptrCast(&status);
-    return ctx.serviceEndpointReply(handle, request_id, r4os.abi.service_api_result_ok, bytes[0..@sizeOf(r4os.abi.LogServiceStatus)]);
+    return r4os.app_services.replyIfPending(ctx.*, handle, request_id, r4os.abi.service_api_result_ok, bytes[0..@sizeOf(r4os.abi.LogServiceStatus)]);
 }
 
 fn replySources(ctx: *const r4os.r4sys.Context, handle: u32, request_id: u32, state: *const LogState, payload: []const u8) i32 {
     var query = r4os.abi.LogServiceSourceQuery{};
     if (payload.len != 0 and !parseSourceQuery(payload, &query)) {
-        return ctx.serviceEndpointReply(handle, request_id, r4os.abi.service_api_result_invalid, "");
+        return r4os.app_services.replyIfPending(ctx.*, handle, request_id, r4os.abi.service_api_result_invalid, "");
     }
 
     var page = r4os.abi.LogServiceSourcePage{
@@ -670,27 +670,27 @@ fn replySources(ctx: *const r4os.r4sys.Context, handle: u32, request_id: u32, st
     if (logical < source_count_u32) page.flags |= r4os.abi.log_service_page_flag_more;
 
     const bytes: [*]const u8 = @ptrCast(&page);
-    return ctx.serviceEndpointReply(handle, request_id, r4os.abi.service_api_result_ok, bytes[0..@sizeOf(r4os.abi.LogServiceSourcePage)]);
+    return r4os.app_services.replyIfPending(ctx.*, handle, request_id, r4os.abi.service_api_result_ok, bytes[0..@sizeOf(r4os.abi.LogServiceSourcePage)]);
 }
 
 fn replyRecords(ctx: *const r4os.r4sys.Context, handle: u32, request_id: u32, state: *const LogState, payload: []const u8) i32 {
     var query = r4os.abi.LogServiceRecordQuery{};
     if (!parseRecordQuery(payload, &query)) {
-        return ctx.serviceEndpointReply(handle, request_id, r4os.abi.service_api_result_invalid, "");
+        return r4os.app_services.replyIfPending(ctx.*, handle, request_id, r4os.abi.service_api_result_invalid, "");
     }
     if (!validSourceFilter(query.source_id)) {
-        return ctx.serviceEndpointReply(handle, request_id, r4os.abi.service_api_result_invalid, "");
+        return r4os.app_services.replyIfPending(ctx.*, handle, request_id, r4os.abi.service_api_result_invalid, "");
     }
 
     var page = makeRecordPage(state, &query);
     const bytes: [*]const u8 = @ptrCast(&page);
-    return ctx.serviceEndpointReply(handle, request_id, r4os.abi.service_api_result_ok, bytes[0..@sizeOf(r4os.abi.LogServiceRecordPage)]);
+    return r4os.app_services.replyIfPending(ctx.*, handle, request_id, r4os.abi.service_api_result_ok, bytes[0..@sizeOf(r4os.abi.LogServiceRecordPage)]);
 }
 
 fn handleWrite(ctx: *const r4os.r4sys.Context, handle: u32, request_id: u32, state: *LogState, payload: []const u8) i32 {
     var request = r4os.abi.LogServiceWriteRequest{};
     if (!parseWriteRequest(payload, &request) or !validSeverity(request.severity)) {
-        return ctx.serviceEndpointReply(handle, request_id, r4os.abi.service_api_result_invalid, "");
+        return r4os.app_services.replyIfPending(ctx.*, handle, request_id, r4os.abi.service_api_result_invalid, "");
     }
 
     const origin = boundedSpan(request.origin[0..], request.origin_len);
@@ -704,16 +704,16 @@ fn handleWrite(ctx: *const r4os.r4sys.Context, handle: u32, request_id: u32, sta
 fn replyExport(ctx: *const r4os.r4sys.Context, handle: u32, request_id: u32, state: *LogState, payload: []const u8) i32 {
     var query = r4os.abi.LogServiceRecordQuery{};
     if (!parseRecordQuery(payload, &query)) {
-        return ctx.serviceEndpointReply(handle, request_id, r4os.abi.service_api_result_invalid, "");
+        return r4os.app_services.replyIfPending(ctx.*, handle, request_id, r4os.abi.service_api_result_invalid, "");
     }
     if (!validSourceFilter(query.source_id)) {
-        return ctx.serviceEndpointReply(handle, request_id, r4os.abi.service_api_result_invalid, "");
+        return r4os.app_services.replyIfPending(ctx.*, handle, request_id, r4os.abi.service_api_result_invalid, "");
     }
 
     var page = makeExportPage(state, &query);
     state.exports +%= 1;
     const bytes: [*]const u8 = @ptrCast(&page);
-    return ctx.serviceEndpointReply(handle, request_id, r4os.abi.service_api_result_ok, bytes[0..@sizeOf(r4os.abi.LogServiceExportPage)]);
+    return r4os.app_services.replyIfPending(ctx.*, handle, request_id, r4os.abi.service_api_result_ok, bytes[0..@sizeOf(r4os.abi.LogServiceExportPage)]);
 }
 
 fn addRecordEx(ctx: *const r4os.r4sys.Context, state: *LogState, source_id_raw: u32, severity_raw: u8, record_type_raw: u8, origin: []const u8, text: []const u8, flags: u32) void {
