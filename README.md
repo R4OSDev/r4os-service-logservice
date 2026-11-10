@@ -4,7 +4,7 @@
 
 ## Package
 
-- Version: `0.1.2`
+- Version: `0.1.7`
 - Image target: `/R4OS/SERVICES/LOGSVC.R4X`
 - Image scope: `slim`
 - Canonical project manifest: `module.R4MF`

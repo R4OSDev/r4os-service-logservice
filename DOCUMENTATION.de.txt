@@ -16,12 +16,12 @@ Build aus dem Repository `Repositories/Services/LogService`:
 Die Starter loesen Toolchain und lokale SDK-Abhaengigkeiten ueber
 `Settings.R4S` auf. Das Ergebnis liegt im Repository unter:
 
-    zig-out/LOGSVC.R4X
+    Artifacts/Modules/LogService/LOGSVC.R4X (Workspace)
 
 Contract:
 - App-Einstieg: `r4_app_main`; `ENTRY_MODE=app` erzeugt den SDK-Startwrapper.
 - App-Klasse: `service`
-- Eingebaute Plattform-API: `R4SYS:Query:1`
+- Eingebaute Plattform-API: `R4SYS:Query2:2`
 - Service-Name: `LOGSVC`
 - Standardargumente: `/RUN`
 - Zielpfad im Image: `C:\R4OS\SERVICES\LOGSVC.R4X`
@@ -44,3 +44,15 @@ Runtime-Bootlog seit 0.59.3:
 Der fruehere Gate-Pfad `Tests/Gate/Run-DesktopKernelLogRoutingContract0593.ps1`
 ist im aktuellen Workspace nicht mehr vorhanden. Aktuelle Nachweise stehen
 in `Docs/Inventory/Tests.json` im Workspace-Root.
+
+Anschluss Generation2 (0.90.59)
+------------------------------
+Normale SDK196-Auswahl: SDK_PROFILE=r4os-zig-generation2, App2/R4XStart2 und
+Query2:2 fuer Plattformimporte. Unabhaengige R4STD-Interfaces behalten ihren
+eigenen Vertrag. Registrierung verwendet ein gemeinsames100Tick-Budget
+mit wirklicher Clock statt eines pro Versuch erneuerten Iterationsbudgets.
+
+LOGSVC benutzt fuer Konsolensnapshots den gemeinsamen vollstaendigen InventoryReader. Cursor-, Seiten-, Epoch-/Groessen-/Sortier- und Clockpruefung sowie Restart liegen dort. Der Logbesitzer allokiert nach echtem total, waechst bei Bedarf und publiziert erst eine vollstaendige Generation. Wachstum/Retry/Restart behalten ein gemeinsames2Sekundenbudget; unvollstaendige/fehlgeschlagene Ansichten erzeugen keinen leeren Erfolg und keine Teilausgabe. Bootlog-Tail und eigene Recordpolicy bleiben unveraendert.
+
+Build ueber ./Build.sh beziehungsweise Build.bat; beide verwenden dieselbe
+PowerShell7-Logik. Version, Klasse, Ziel und Imports stehen in module.R4MF.

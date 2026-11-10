@@ -12,8 +12,6 @@ var bootlog_buffer: [r4os.abi.boot_log_buffer_size]u8 = .{0xA5} ** r4os.abi.boot
 var file_log_buffer: [512]u8 = .{0xA5} ** 512;
 
 const bootlog_snapshot_attempts: u8 = 4;
-const inventory_restart_limit: u32 = 16;
-const inventory_would_block_retry_limit: u32 = 64;
 
 const StableBootlogTail = struct {
     next_total: u64,
@@ -83,7 +81,7 @@ const LogState = struct {
     last_error: [r4os.abi.log_service_error_bytes]u8 = .{0} ** r4os.abi.log_service_error_bytes,
 };
 
-pub fn r4_app_main(r4_app: *r4os.App) i32 {
+pub fn r4_app_main(r4_app: *r4os.App2) i32 {
     var ctx = r4_app.system();
     var dev = r4_app.devicesLowLevel();
     if (hasArg(ctx.argsRaw(), selftest_arg)) return runSelfTest(&ctx);
@@ -96,8 +94,11 @@ fn runService(ctx: *const r4os.r4sys.Context, dev: ?*const r4os.r4dev.Context) i
 
     var info: r4os.abi.ServiceInfo = .{};
     var handle: u32 = 0;
-    var waited: u32 = 0;
-    while (waited < 100 and handle == 0) : (waited += 1) {
+    const actual = ctx.base.generation2 orelse return r4os.abi.err_no_group;
+    const clock = r4os.inventory_reader.PlatformClock.fromContext2(actual) catch return r4os.abi.err_no_fn;
+    var registration_budget = r4os.rpc_budget.Budget.fromTicks(clock.read, 100) catch |err| return r4os.rpc_budget.code(err);
+    while (handle == 0 and !ctx.programShouldClose()) {
+        _ = registration_budget.remainingTicks() catch break;
         const rc = ctx.serviceEndpointRegister(service_name, 0, &info);
         if (rc == r4os.abi.service_api_result_ok and info.handle != 0) {
             handle = info.handle;
@@ -492,79 +493,15 @@ fn addAudioServiceSnapshot(ctx: *const r4os.r4sys.Context, state: *LogState) voi
 
 fn refreshConsoleSnapshots(ctx: *const r4os.r4sys.Context, state: *LogState) void {
     const allocator = ctx.allocator();
-    var programs: std.ArrayList(r4os.abi.ProgramInstanceInfo) = .empty;
-    defer programs.deinit(allocator);
-
-    var attempt: u32 = 0;
-    snapshot: while (attempt < inventory_restart_limit) : (attempt += 1) {
-        programs.clearRetainingCapacity();
-        var cursor: r4os.abi.ProgramInventoryCursor = .{};
-        var summary: r4os.abi.ProgramInventorySummary = .{};
-        if (!beginProgramInventory(ctx, &cursor, &summary)) return;
-        programs.ensureTotalCapacity(allocator, @intCast(summary.program_total)) catch return;
-        while (true) {
-            var entries: [@as(usize, r4os.abi.program_inventory_page_max)]r4os.abi.ProgramInstanceSnapshot = undefined;
-            var page: r4os.abi.ProgramInventoryPageInfo = .{};
-            if (!readProgramInventoryPage(ctx, &cursor, entries[0..], &page)) return;
-            if (page.status == r4os.abi.program_inventory_status_restart) continue :snapshot;
-            if (page.returned > entries.len or page.snapshot_generation != cursor.snapshot_generation) return;
-            for (entries[0..@intCast(page.returned)]) |entry| {
-                programs.append(allocator, entry.info) catch return;
-            }
-            if (page.status == r4os.abi.program_inventory_status_complete) break;
-            if (page.status != r4os.abi.program_inventory_status_more or page.returned == 0) return;
-        }
-
-        // Only emit records after every page came from one stable generation;
-        // a restart therefore cannot duplicate records from an abandoned pass.
-        for (programs.items) |info| {
-            if (info.app_class != @intFromEnum(r4os.abi.ProgramInstanceClass.console)) continue;
-
-            var console = r4os.abi.ConsoleState{};
-            if (ctx.consoleState(info.id, &console) != 0) continue;
-            addConsoleSnapshot(ctx, state, &info, &console);
-        }
-        return;
+    const programs = @import("program_snapshots.zig").collect(ctx, allocator) orelse return;
+    defer allocator.free(programs);
+    for (programs) |entry| {
+        const info = entry.info;
+        if (info.app_class != @intFromEnum(r4os.abi.ProgramInstanceClass.console)) continue;
+        var console = r4os.abi.ConsoleState{};
+        if (ctx.consoleState(info.id, &console) != 0) continue;
+        addConsoleSnapshot(ctx, state, &info, &console);
     }
-}
-
-fn beginProgramInventory(
-    ctx: *const r4os.r4sys.Context,
-    cursor: *r4os.abi.ProgramInventoryCursor,
-    summary: *r4os.abi.ProgramInventorySummary,
-) bool {
-    var retry: u32 = 0;
-    while (retry <= inventory_would_block_retry_limit) : (retry += 1) {
-        cursor.* = .{};
-        summary.* = .{};
-        const status = ctx.programInventoryBegin(cursor, summary);
-        if (status == r4os.abi.program_handle_ok) return true;
-        if (status != r4os.abi.program_handle_error_would_block or retry == inventory_would_block_retry_limit)
-            return false;
-        ctx.sleepTicks(1);
-    }
-    return false;
-}
-
-fn readProgramInventoryPage(
-    ctx: *const r4os.r4sys.Context,
-    cursor: *r4os.abi.ProgramInventoryCursor,
-    entries: []r4os.abi.ProgramInstanceSnapshot,
-    page: *r4os.abi.ProgramInventoryPageInfo,
-) bool {
-    var retry: u32 = 0;
-    while (retry <= inventory_would_block_retry_limit) : (retry += 1) {
-        const cursor_before = cursor.*;
-        page.* = .{};
-        const status = ctx.programInventoryPrograms(cursor, entries, page);
-        if (status == r4os.abi.program_handle_ok) return true;
-        cursor.* = cursor_before;
-        page.* = .{};
-        if (status != r4os.abi.program_handle_error_would_block or retry == inventory_would_block_retry_limit)
-            return false;
-        ctx.sleepTicks(1);
-    }
-    return false;
 }
 
 fn addConsoleSnapshot(ctx: *const r4os.r4sys.Context, state: *LogState, info: *const r4os.abi.ProgramInstanceInfo, console: *const r4os.abi.ConsoleState) void {
